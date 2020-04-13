@@ -1,0 +1,118 @@
+---
+title: "Exercise Manner Prediction"
+author: "WR"
+date: "4/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(VIM)
+library(caret)
+```
+
+## Summary
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har). The data were collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) . We use other variables in the data to predict the "classe". The final prediction model we choose is the random forest model with the expected accuracy nearly to 1. We then use this model to predict 20 different cases in the [test data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+
+## Data Exploration and Preprocessing
+```{r}
+set.seed(67548)
+dat <- read.csv("~/pml-training.csv",stringsAsFactors=FALSE)
+str(dat)
+```
+A glimpse of the data shows there are a very large amount of NAs and blanks. We then use VIM package to further quantify those values in order to make a decision on how to deal with missing values.
+
+```{r}
+temp<-summary(aggr(dat, sortVar=TRUE))$combinations
+```
+From the analysis results, we see columns with missing values generally are missing over 90% values. By reading column names, those columns seems to be descriptive statistics of other columns -- max, min, var, avg, stddev, var, so we decide to remove those columns.
+```{r}
+#remove columns with missing or blank values up to 90%
+dat <- dat[,(colSums(is.na(dat))/dim(dat)[1])<0.1]
+dat <- dat[,(colSums(dat=="")/dim(dat)[1])<0.1]
+#str(dat)
+```
+
+Some columns seem to have little use for representing the data, i.e., "X","new_window","num_window". We remove those columns.
+```{r}
+# remove useless columns: X, new_window, num_window
+dat <- dat[, -which(names(dat) %in% c("X","new_window","num_window"))]
+#str(dat)
+```
+
+Convert the classe column to factors
+```{r}
+dat$classe <- as.factor(dat$classe)
+str(dat)
+```
+
+## Data Slicing
+Now the dimension of the data is 19622*57. The sample size is relatively large, so we slice it to 60% training, 20% test, and 20% validation data.
+```{r}
+#remove x
+sel <- createDataPartition(y=dat$classe,p=0.6,list=FALSE)
+training <- dat[sel,]
+left <- dat[-sel,]
+sel <- createDataPartition(y=left$classe,p=0.5,list=FALSE)
+validation <- left[sel,]
+test <- left[-sel,]
+```
+
+
+## Prediction Models
+
+The first prediction model we try is the random forest, considering there are a relatively large set (57) of variables.
+```{r, cache=TRUE}
+modRf <- train(classe~.,data=training,method="rf",verbose=FALSE)
+```
+
+```{r}
+predRf <- predict(modRf,validation)
+confusionMatrix(predRf,validation$classe)
+```
+We apply this model on the validation set, the accuracy is 0.997, so the expected out of sample error is 0.003.
+
+We then try to use gradient boosting machines (gbm) to train the data.
+```{r, cache=TRUE}
+modGbm <- train(classe~.,data=training,method="gbm",verbose=FALSE)
+```
+
+```{r}
+predGbm <- predict(modGbm,validation)
+confusionMatrix(predGbm,validation$classe)
+```
+The accuracy of the gbm model on the validation set is 0.995, the expected out of sample error is 0.005.
+
+It seems the cross-validation accuracy of the random forest model is higher than the gbm model, so we choose the random forest model as our final prediction model. We apply this final prediction model on the test set, the accuracy of this model on test set is 0.999.
+
+```{r}
+pred <- predict(modRf, test)
+confusionMatrix(pred,test$classe)
+```
+
+
+## Predictions of 20 Testing Cases
+
+```{r}
+datTest <- read.csv("~/pml-testing.csv",stringsAsFactors=FALSE)
+
+#remove columns with missing or blank values greater than and equal to 90%
+datTest <- datTest[,(colSums(is.na(datTest))/dim(datTest)[1])<0.1]
+datTest <- datTest[,(colSums(datTest=="")/dim(datTest)[1])<0.1]
+#str(datTest)
+
+# remove useless columns: X, new_window, num_window 
+datTest <- datTest[, -which(names(datTest) %in% c("X","new_window","num_window"))]
+#str(datTest)
+
+predTest <- predict(modRf,datTest)
+
+predTest
+```
+
+## Data Source
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201).Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: [http://groupware.les.inf.puc-rio.br/har#ixzz6JWUropaz](http://groupware.les.inf.puc-rio.br/har#ixzz6JWUropaz)
